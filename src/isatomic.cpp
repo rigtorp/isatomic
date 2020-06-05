@@ -10,8 +10,6 @@
 
 #include <unistd.h>
 
-#include <immintrin.h>
-
 int main(int argc, char *argv[]) {
 
   using namespace std::string_literals;
@@ -71,19 +69,18 @@ int main(int argc, char *argv[]) {
 
   if (optind != argc) {
   usage:
-    std::cerr
-        << "isatomic 1.0.0 © 2020 Erik Rigtorp <erik@rigtorp.se>\n"
-           "usage: isatomic [-i iters] -t 128|128u|128s|256|256u|256s\n"
-           "tests if 16B/32B wide loads/stores are atomic\n"
-           "number of iterations defaults to 1000000\n"
-           "128:  16B loads/stores\n"
-           "128u: 16B unaligned loads/stores\n"
-           "128s: 16B cacheline split loads/stores\n"
-           "256:  32B loads/stores\n"
-           "256u: 32B unaligned loads/stores\n"
-           "256s: 32B cacheline split loads/stores\n"
-           "returns 1 if any torn reads were detected"
-        << std::endl;
+    std::cerr << "isatomic 1.0.0 © 2020 Erik Rigtorp <erik@rigtorp.se>\n"
+                 "usage: isatomic [-i iters] -t 128|128u|128s|256|256u|256s\n"
+                 "tests if 16B/32B wide loads/stores are atomic\n"
+                 "number of iterations defaults to 1000000\n"
+                 "128:  16B loads/stores\n"
+                 "128u: 16B unaligned loads/stores\n"
+                 "128s: 16B cacheline split loads/stores\n"
+                 "256:  32B loads/stores\n"
+                 "256u: 32B unaligned loads/stores\n"
+                 "256s: 32B cacheline split loads/stores\n"
+                 "returns 1 if any torn reads were detected"
+              << std::endl;
     exit(1);
   }
 
@@ -102,8 +99,6 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  alignas(64) __m128i foo128 = _mm_set1_epi64x(0);
-  alignas(64) __m256i foo256 = _mm256_set1_epi64x(0);
   alignas(64) char buf[128] = {};
 
   std::array<std::atomic<size_t>, 16> counts = {};
@@ -125,51 +120,105 @@ int main(int argc, char *argv[]) {
     while (active_threads.load(std::memory_order_relaxed) != cpus.size())
       ;
 
+    // Pseudo code:
+    // - Load 128b/256b of data
+    // - Save bitmask of 4x 32b/64b float signbits
+    // - Store 4x 32b/64b floats of all zero or all negative one
+    // - Keep tally of observed signbit bitmask patterns
+
+    // Note: Must use hand rolled assembly, since intrinsic functions are
+    // sometimes optimized where 256b operation is replaced by two 128b
+    // operations.
+
     switch (type) {
     case ALIGNED128:
       for (size_t i = 0; i < iters; ++i) {
-        int x = _mm_movemask_ps((__m128)_mm_load_si128(&foo128));
+        int x;
+        float y = i % 2 ? 0 : -1;
+        asm("vmovdqa %3, %%xmm0;"
+            "vmovmskps %%xmm0, %0;"
+            "vmovd %2, %%xmm1;"
+            "vbroadcastss %%xmm1, %%xmm2;"
+            "vmovdqa %%xmm2, %1;"
+            : "=r"(x), "=m"(buf[0])
+            : "r"(y), "m"(buf[0])
+            : "%xmm0", "%xmm1", "%xmm2");
         tcounts[x]++;
-        _mm_store_si128(&foo128, _mm_set1_epi32(i % 2 ? 0 : -1));
       }
       break;
     case UNALIGNED128:
       for (size_t i = 0; i < iters; ++i) {
-        int x = _mm_movemask_ps((__m128)_mm_loadu_si128((__m128i *)&buf[3]));
+        int x;
+        float y = i % 2 ? 0 : -1;
+        asm("vmovdqu %3, %%xmm0;"
+            "vmovmskps %%xmm0, %0;"
+            "vmovd %2, %%xmm1;"
+            "vbroadcastss %%xmm1, %%xmm2;"
+            "vmovdqu %%xmm2, %1;"
+            : "=r"(x), "=m"(buf[3])
+            : "r"(y), "m"(buf[3])
+            : "%xmm0", "%xmm1", "%xmm2");
         tcounts[x]++;
-        _mm_storeu_si128((__m128i *)&buf[3], _mm_set1_epi32(i % 2 ? 0 : -1));
       }
       break;
     case SPLIT128:
       for (size_t i = 0; i < iters; ++i) {
-        int x = _mm_movemask_ps((__m128)_mm_loadu_si128((__m128i *)&buf[56]));
+        int x;
+        float y = i % 2 ? 0 : -1;
+        asm("vmovdqu %3, %%xmm0;"
+            "vmovmskps %%xmm0, %0;"
+            "vmovd %2, %%xmm1;"
+            "vbroadcastss %%xmm1, %%xmm2;"
+            "vmovdqu %%xmm2, %1;"
+            : "=r"(x), "=m"(buf[56])
+            : "r"(y), "m"(buf[56])
+            : "%xmm0", "%xmm1", "%xmm2");
         tcounts[x]++;
-        _mm_storeu_si128((__m128i *)&buf[56], _mm_set1_epi32(i % 2 ? 0 : -1));
       }
       break;
     case ALIGNED256:
       for (size_t i = 0; i < iters; ++i) {
-        int x = _mm256_movemask_pd((__m256d)_mm256_load_si256(&foo256));
+        int x;
+        double y = i % 2 ? 0 : -1;
+        asm("vmovdqa %3, %%ymm0;"
+            "vmovmskpd %%ymm0, %0;"
+            "vmovq %2, %%xmm1;"
+            "vpbroadcastq %%xmm1, %%ymm2;"
+            "vmovdqa %%ymm2, %1;"
+            : "=r"(x), "=m"(buf[0])
+            : "r"(y), "m"(buf[0])
+            : "%ymm0", "%xmm1", "%ymm2");
         tcounts[x]++;
-        _mm256_store_si256(&foo256, _mm256_set1_epi64x(i % 2 ? 0 : -1));
       }
       break;
     case UNALIGNED256:
       for (size_t i = 0; i < iters; ++i) {
-        int x =
-            _mm256_movemask_pd((__m256d)_mm256_loadu_si256((__m256i *)&buf[3]));
+        int x;
+        double y = i % 2 ? 0 : -1;
+        asm("vmovdqu %3, %%ymm0;"
+            "vmovmskpd %%ymm0, %0;"
+            "vmovq %2, %%xmm1;"
+            "vpbroadcastq %%xmm1, %%ymm2;"
+            "vmovdqu %%ymm2, %1;"
+            : "=r"(x), "=m"(buf[3])
+            : "r"(y), "m"(buf[3])
+            : "%ymm0", "%xmm1", "%ymm2");
         tcounts[x]++;
-        _mm256_storeu_si256((__m256i *)&buf[3],
-                            _mm256_set1_epi64x(i % 2 ? 0 : -1));
       }
       break;
     case SPLIT256:
       for (size_t i = 0; i < iters; ++i) {
-        int x = _mm256_movemask_pd(
-            (__m256d)_mm256_loadu_si256((__m256i *)&buf[48]));
+        int x;
+        double y = i % 2 ? 0 : -1;
+        asm("vmovdqu %3, %%ymm0;"
+            "vmovmskpd %%ymm0, %0;"
+            "vmovq %2, %%xmm1;"
+            "vpbroadcastq %%xmm1, %%ymm2;"
+            "vmovdqu %%ymm2, %1;"
+            : "=r"(x), "=m"(buf[48])
+            : "r"(y), "m"(buf[48])
+            : "%ymm0", "%xmm1", "%ymm2");
         tcounts[x]++;
-        _mm256_storeu_si256((__m256i *)&buf[48],
-                            _mm256_set1_epi64x(i % 2 ? 0 : -1));
       }
       break;
     case NONE:
