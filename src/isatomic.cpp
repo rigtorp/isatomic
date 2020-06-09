@@ -183,7 +183,7 @@ int main(int argc, char *argv[]) {
         asm("vmovdqa %3, %%ymm0;"
             "vmovmskpd %%ymm0, %0;"
             "vmovq %2, %%xmm1;"
-            "vpbroadcastq %%xmm1, %%ymm2;"
+            "vbroadcastsd %%xmm1, %%ymm2;"
             "vmovdqa %%ymm2, %1;"
             : "=r"(x), "=m"(buf[0])
             : "r"(y), "m"(buf[0])
@@ -198,7 +198,7 @@ int main(int argc, char *argv[]) {
         asm("vmovdqu %3, %%ymm0;"
             "vmovmskpd %%ymm0, %0;"
             "vmovq %2, %%xmm1;"
-            "vpbroadcastq %%xmm1, %%ymm2;"
+            "vbroadcastsd %%xmm1, %%ymm2;"
             "vmovdqu %%ymm2, %1;"
             : "=r"(x), "=m"(buf[3])
             : "r"(y), "m"(buf[3])
@@ -213,7 +213,7 @@ int main(int argc, char *argv[]) {
         asm("vmovdqu %3, %%ymm0;"
             "vmovmskpd %%ymm0, %0;"
             "vmovq %2, %%xmm1;"
-            "vpbroadcastq %%xmm1, %%ymm2;"
+            "vbroadcastsd %%xmm1, %%ymm2;"
             "vmovdqu %%ymm2, %1;"
             : "=r"(x), "=m"(buf[48])
             : "r"(y), "m"(buf[48])
