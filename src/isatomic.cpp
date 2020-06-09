@@ -22,6 +22,8 @@ int main(int argc, char *argv[]) {
     ALIGNED256,
     UNALIGNED256,
     SPLIT256,
+    ALIGNED512,
+    SPLIT512,
     NONE
   } type = NONE;
 
@@ -56,6 +58,14 @@ int main(int argc, char *argv[]) {
         type = SPLIT256;
         break;
       }
+      if (optarg == "512"s) {
+        type = ALIGNED512;
+        break;
+      }
+      if (optarg == "512s"s) {
+        type = SPLIT512;
+        break;
+      }
       goto usage;
     default:
       goto usage;
@@ -79,6 +89,8 @@ int main(int argc, char *argv[]) {
                  "256:  32B loads/stores\n"
                  "256u: 32B unaligned loads/stores\n"
                  "256s: 32B cacheline split loads/stores\n"
+                 "512:  64B aligned loads/stores\n"
+                 "512s: 64B cacheline split loads/stores\n"
                  "returns 1 if any torn reads were detected"
               << std::endl;
     exit(1);
@@ -101,7 +113,7 @@ int main(int argc, char *argv[]) {
 
   alignas(64) char buf[128] = {};
 
-  std::array<std::atomic<size_t>, 16> counts = {};
+  std::array<std::atomic<size_t>, 256> counts = {};
   std::atomic<size_t> active_threads = {0};
   auto func = [&](int cpu) {
     // pin current thread to assigned CPU
@@ -113,7 +125,7 @@ int main(int argc, char *argv[]) {
       exit(1);
     }
 
-    std::array<size_t, 16> tcounts = {};
+    std::array<size_t, 256> tcounts = {};
 
     // wait for all threads to be ready
     active_threads.fetch_add(1, std::memory_order_relaxed);
@@ -221,6 +233,38 @@ int main(int argc, char *argv[]) {
         tcounts[x]++;
       }
       break;
+    case ALIGNED512:
+      for (size_t i = 0; i < iters; ++i) {
+        int x;
+        double y = i % 2 ? 0 : -1;
+        asm("vmovdqa64 %3, %%zmm0;"
+            "vpmovq2m %%zmm0, %%k1;"
+            "kmovb %%k1, %0;"
+            "vmovq %2, %%xmm1;"
+            "vbroadcastsd %%xmm1, %%zmm2;"
+            "vmovdqa64 %%zmm2, %1;"
+            : "=r"(x), "=m"(buf[0])
+            : "r"(y), "m"(buf[0])
+            : "%zmm0", "%xmm1", "%zmm2", "%k1");
+        tcounts[x]++;
+      }
+      break;
+    case SPLIT512:
+      for (size_t i = 0; i < iters; ++i) {
+        int x;
+        double y = i % 2 ? 0 : -1;
+        asm("vmovdqu64 %3, %%zmm0;"
+            "vpmovq2m %%zmm0, %%k1;"
+            "kmovb %%k1, %0;"
+            "vmovq %2, %%xmm1;"
+            "vbroadcastsd %%xmm1, %%zmm2;"
+            "vmovdqu64 %%zmm2, %1;"
+            : "=r"(x), "=m"(buf[32])
+            : "r"(y), "m"(buf[32])
+            : "%zmm0", "%xmm1", "%zmm2", "%k1");
+        tcounts[x]++;
+      }
+      break;
     case NONE:
       std::abort();
     }
@@ -242,14 +286,21 @@ int main(int argc, char *argv[]) {
     t.join();
   }
 
+  size_t endmask = 0xf;
+  if (type == ALIGNED512 || type == SPLIT512) {
+    endmask = 0xff;
+  }
+
   int res = 0;
   for (size_t i = 0; i < counts.size(); i++) {
     if (counts[i] != 0) {
-      if (i != 0 && i != 0xf) {
+      if (i != 0 && i != endmask) {
         res = 1;
       }
-      std::cout << std::hex << i << " " << std::dec << counts[i]
-                << (i != 0 && i != 0xf ? " torn load/store!" : "") << std::endl;
+      std::cout << std::setfill('0') << std::setw(2) << std::hex << i << " "
+                << std::dec << counts[i]
+                << (i != 0 && i != endmask ? " torn load/store!" : "")
+                << std::endl;
     }
   }
 
