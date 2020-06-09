@@ -110,6 +110,10 @@ int main(int argc, char *argv[]) {
       cpus.push_back(i);
     }
   }
+  if (cpus.size() < 2) {
+    std::cerr << "need at least 2 cores to run test" << std::endl;
+    exit(1);
+  }
 
   alignas(64) char buf[128] = {};
 
