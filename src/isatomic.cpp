@@ -157,7 +157,7 @@ int main(int argc, char *argv[]) {
             "vbroadcastss %%xmm1, %%xmm2;"
             "vmovdqa %%xmm2, %1;"
             : "=r"(x), "=m"(buf[0])
-            : "r"(y), "m"(buf[0])
+            : "m"(y), "m"(buf[0])
             : "%xmm0", "%xmm1", "%xmm2");
         tcounts[x]++;
       }
@@ -171,8 +171,8 @@ int main(int argc, char *argv[]) {
             "vmovd %2, %%xmm1;"
             "vbroadcastss %%xmm1, %%xmm2;"
             "vmovdqu %%xmm2, %1;"
-            : "=r"(x), "=m"(buf[3])
-            : "r"(y), "m"(buf[3])
+            : "=r"(x), "=m"(buf[20]) // R/W across both 16B and 32B boundary
+            : "r"(y), "m"(buf[20])
             : "%xmm0", "%xmm1", "%xmm2");
         tcounts[x]++;
       }
@@ -216,8 +216,8 @@ int main(int argc, char *argv[]) {
             "vmovq %2, %%xmm1;"
             "vbroadcastsd %%xmm1, %%ymm2;"
             "vmovdqu %%ymm2, %1;"
-            : "=r"(x), "=m"(buf[3])
-            : "r"(y), "m"(buf[3])
+            : "=r"(x), "=m"(buf[20]) // R/W across both 16B and 32B boundary
+            : "r"(y), "m"(buf[20])
             : "%ymm0", "%xmm1", "%ymm2");
         tcounts[x]++;
       }
